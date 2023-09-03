@@ -334,9 +334,13 @@ public final class AvatarNode: ASDisplayNode {
                 self.editOverlayNode?.setNeedsDisplay()
             }
         }
-        
-        public func playArchiveAnimation() {
-            guard let theme = self.theme else {
+
+		public enum ArchiveAnimation {
+			case archived, revealed
+		}
+
+		public func playArchiveAnimation(_ animation: ArchiveAnimation = .archived) {
+			guard let theme = self.theme else {
                 return
             }
             
@@ -360,8 +364,28 @@ public final class AvatarNode: ASDisplayNode {
             }
             
             self.addSubnode(animationBackgroundNode)
-            
-            let animationNode = AnimationNode(animation: "anim_archiveAvatar", colors: ["box1.box1.Fill 1": iconColor, "box3.box3.Fill 1": iconColor, "box2.box2.Fill 1": backgroundColor], scale: 0.1653828)
+			let animationName: String
+			let colors: [String: UIColor]
+			let scale: CGFloat
+			let duration: CGFloat
+			switch animation {
+			case .archived:
+				animationName = "anim_archiveAvatar"
+				colors = ["box1.box1.Fill 1": iconColor, "box3.box3.Fill 1": iconColor, "box2.box2.Fill 1": backgroundColor]
+				scale = 0.1653828
+				duration = 0.12
+			case .revealed:
+				animationName = "archive"
+				colors = ["Cap.cap1.Fill 1": iconColor,
+						  "Box.box1.Fill 1": iconColor,
+						  "Cap.cap2.Fill 1": iconColor,
+						  "Arrow 2.Arrow 2.Stroke 1": backgroundColor,
+						  "Arrow 1.Arrow 1.Stroke 1": backgroundColor
+				]
+				scale = 0.33
+				duration = 0.3
+			}
+            let animationNode = AnimationNode(animation: animationName, colors: colors, scale: scale)
             animationNode.isUserInteractionEnabled = false
             animationNode.completion = { [weak animationBackgroundNode, weak self] in
                 self?.imageNode.isHidden = false
@@ -369,8 +393,8 @@ public final class AvatarNode: ASDisplayNode {
             }
             animationBackgroundNode.addSubnode(animationNode)
             
-            animationBackgroundNode.layer.animateScale(from: 1.0, to: 1.07, duration: 0.12, removeOnCompletion: false, completion: { [weak animationBackgroundNode] finished in
-                animationBackgroundNode?.layer.animateScale(from: 1.07, to: 1.0, duration: 0.12, removeOnCompletion: false)
+            animationBackgroundNode.layer.animateScale(from: 1.0, to: 1.07, duration: duration, removeOnCompletion: false, completion: { [weak animationBackgroundNode] finished in
+                animationBackgroundNode?.layer.animateScale(from: 1.07, to: 1.0, duration: duration, removeOnCompletion: false)
             })
             
             if var size = animationNode.preferredSize() {
@@ -774,8 +798,8 @@ public final class AvatarNode: ASDisplayNode {
         self.updateStoryIndicator(transition: .immediate)
     }
     
-    public func playArchiveAnimation() {
-        self.contentNode.playArchiveAnimation()
+	public func playArchiveAnimation(_ animation: ContentNode.ArchiveAnimation = .archived) {
+        self.contentNode.playArchiveAnimation(animation)
     }
     
     public func setPeer(

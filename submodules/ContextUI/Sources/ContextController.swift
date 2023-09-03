@@ -959,11 +959,51 @@ private final class ContextControllerNode: ViewControllerTracingNode, UIScrollVi
                 
                 extracted.willUpdateIsExtractedToContextPreview?(true, .animated(duration: 0.2, curve: .easeInOut))
             case .controller:
-                let springDuration: Double = 0.52 * animationDurationFactor
-                let springDamping: CGFloat = 110.0
-                
-                self.actionsContainerNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2 * animationDurationFactor)
-                self.actionsContainerNode.layer.animateSpring(from: 0.1 as NSNumber, to: 1.0 as NSNumber, keyPath: "transform.scale", duration: springDuration, initialVelocity: 0.0, damping: springDamping)
+				var sourceView: UIView?
+				if let contentNode = self.contentContainerNode.contentNode, case let .controller(controller) = contentNode {
+					sourceView = controller.sourceView
+				}
+				let defaultDuration = (0.2 * animationDurationFactor) * 3
+				if let sourceView = sourceView {
+					let convertedSourceView = convertFrame(sourceView.layer.frame, from: sourceView.superview!, to: self.view)
+					let convertedContentNode = convertFrame(contentContainerNode.layer.frame, from: contentContainerNode.supernode!.view, to: sourceView.superview!)
+
+
+
+					sourceView.layer.animateAlpha(from: 1, to: 0, duration: defaultDuration)
+					sourceView.layer.animatePosition(
+						from: sourceView.layer.position,
+						to: CGPoint(x: sourceView.bounds.midX, y: convertedContentNode.minY + sourceView.frame.height / 2),
+						duration: defaultDuration * 0.8,
+						delay: defaultDuration * 0.2
+					)
+
+					contentContainerNode.layer.animateAlpha(from: 0, to: 1, duration: defaultDuration)
+
+					contentContainerNode.layer.animateFrame(
+						from: CGRect(origin: CGPoint(x: contentContainerNode.layer.frame.origin.x, y: convertedSourceView.origin.y), size: CGSize(width: contentContainerNode.frame.width, height: sourceView.frame.height)),
+						to: CGRect(origin: contentContainerNode.layer.frame.origin, size: contentContainerNode.layer.frame.size),
+						duration: defaultDuration * 0.8,
+						delay: defaultDuration * 0.2,
+						timingFunction: ContainedViewLayoutTransitionCurve.easeInOut.timingFunction
+					)
+
+					actionsContainerNode.layer.animateAlpha(from: 0, to: 1, duration: defaultDuration * 0.8, delay: defaultDuration * 0.2)
+
+					actionsContainerNode.layer.animatePosition(
+						from: CGPoint(x: actionsContainerNode.layer.position.x - actionsContainerNode.layer.frame.width * 0.5,
+									  y: convertedContentNode.maxY + actionsContainerNode.frame.height / 2),
+						to: self.actionsContainerNode.frame.center, duration: defaultDuration, completion: { _ in
+							self.animatedIn = true
+						})
+
+					actionsContainerNode.layer.animateScale(from: 0, to: 1, duration: defaultDuration * 0.8, delay: defaultDuration * 0.2)
+					return
+				}
+
+				let springDuration: Double = 0.2 * animationDurationFactor
+				let springDamping: CGFloat = 110.0
+
                 self.contentContainerNode.allowsGroupOpacity = true
                 self.contentContainerNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.2 * animationDurationFactor, completion: { [weak self] _ in
                     self?.contentContainerNode.allowsGroupOpacity = false
@@ -1035,8 +1075,8 @@ private final class ContextControllerNode: ViewControllerTracingNode, UIScrollVi
             return
         }
         
-        var transitionDuration: Double = 0.2
-        var transitionCurve: ContainedViewLayoutTransitionCurve = .easeInOut
+        var transitionDuration: Double = 0.5
+        var transitionCurve: ContainedViewLayoutTransitionCurve = .slide
         
         var result = initialResult
         
@@ -1407,15 +1447,15 @@ private final class ContextControllerNode: ViewControllerTracingNode, UIScrollVi
             } else {
                 self.withoutBlurDimNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: transitionDuration * animationDurationFactor, removeOnCompletion: false)
             }
-            self.actionsContainerNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2 * animationDurationFactor, removeOnCompletion: false, completion: { _ in
+            self.actionsContainerNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: (transitionDuration * animationDurationFactor) / 2, removeOnCompletion: false, completion: { _ in
                 completedActionsNode = true
                 intermediateCompletion()
             })
-            self.contentContainerNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2 * animationDurationFactor, removeOnCompletion: false, completion: { _ in
+            self.contentContainerNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: transitionDuration * animationDurationFactor, removeOnCompletion: false, completion: { _ in
             })
+
             self.actionsContainerNode.layer.animateScale(from: 1.0, to: 0.1, duration: transitionDuration * animationDurationFactor, timingFunction: transitionCurve.timingFunction, removeOnCompletion: false)
-            self.contentContainerNode.layer.animateScale(from: 1.0, to: 0.01, duration: transitionDuration * animationDurationFactor, timingFunction: transitionCurve.timingFunction, removeOnCompletion: false)
-            
+
             let animateOutToItem: Bool
             switch result {
             case .default, .custom:
@@ -1423,19 +1463,35 @@ private final class ContextControllerNode: ViewControllerTracingNode, UIScrollVi
             case .dismissWithoutContent:
                 animateOutToItem = false
             }
-            
-            if animateOutToItem, let originalProjectedContentViewFrame = self.originalProjectedContentViewFrame {
+
+            if animateOutToItem, let originalProjectedContentViewFrame = self.originalProjectedContentViewFrame
+			{
                 let localSourceFrame = self.view.convert(CGRect(origin: CGPoint(x: originalProjectedContentViewFrame.1.minX, y: originalProjectedContentViewFrame.1.minY), size: CGSize(width: originalProjectedContentViewFrame.1.width, height: originalProjectedContentViewFrame.1.height)), to: self.scrollNode.view)
-                
-                self.actionsContainerNode.layer.animatePosition(from: CGPoint(), to: CGPoint(x: localSourceFrame.center.x - self.actionsContainerNode.position.x, y: localSourceFrame.center.y - self.actionsContainerNode.position.y), duration: transitionDuration * animationDurationFactor, timingFunction: transitionCurve.timingFunction, removeOnCompletion: false, additive: true)
-                let contentContainerOffset = CGPoint(x: localSourceFrame.center.x - self.contentContainerNode.frame.center.x, y: localSourceFrame.center.y - self.contentContainerNode.frame.center.y)
-                self.contentContainerNode.layer.animatePosition(from: CGPoint(), to: contentContainerOffset, duration: transitionDuration * animationDurationFactor, timingFunction: transitionCurve.timingFunction, removeOnCompletion: false, additive: true, completion: { [weak self] _ in
-                    completedContentNode = true
-                    if let strongSelf = self, let contentNode = strongSelf.contentContainerNode.contentNode, case let .controller(controller) = contentNode {
-                        controller.sourceView.isHidden = false
-                    }
-                    intermediateCompletion()
-                })
+				let convertedContentNode = convertFrame(contentContainerNode.layer.frame, from: contentContainerNode.supernode!.view, to: controller.sourceView.superview!)
+
+
+
+				controller.sourceView.layer.animateAlpha(from: 0.0, to: 1.0, duration: transitionDuration * animationDurationFactor)
+				controller.sourceView.layer.animatePosition(from: CGPoint(x: convertedContentNode.origin.x + controller.sourceView.frame.width / 2, y: convertedContentNode.origin.y + controller.sourceView.frame.height / 2),
+															to: controller.sourceView.layer.position,
+															duration: transitionDuration * animationDurationFactor, timingFunction: transitionCurve.timingFunction)
+
+				let contentContainerTo = convertFrame(controller.sourceView.frame, from: controller.sourceView.superview!, to: contentContainerNode.view)
+				self.actionsContainerNode.layer.animatePosition(from: CGPoint(),
+																to: CGPoint(x: 0, y: localSourceFrame.center.y - self.actionsContainerNode.position.y), duration: transitionDuration * animationDurationFactor, timingFunction: transitionCurve.timingFunction, removeOnCompletion: false, additive: true)
+
+				contentContainerNode.layer.animateFrame(
+					from: contentContainerNode.frame,
+					to: CGRect(origin: CGPoint(x: contentContainerNode.frame.origin.x, y: contentContainerTo.origin.y + contentContainerTo.height), size: contentContainerTo.size),
+					duration: transitionDuration * animationDurationFactor,
+					completion: { [weak self] _ in
+						completedContentNode = true
+						if let strongSelf = self, let contentNode = strongSelf.contentContainerNode.contentNode, case let .controller(controller) = contentNode {
+							controller.sourceView.isHidden = false
+						}
+						intermediateCompletion()
+					}
+				)
             } else {
                 if let contentNode = self.contentContainerNode.contentNode, case let .controller(controller) = contentNode {
                     controller.sourceView.isHidden = false

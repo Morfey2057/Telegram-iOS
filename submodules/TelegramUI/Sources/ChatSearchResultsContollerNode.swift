@@ -111,6 +111,7 @@ private enum ChatListSearchEntry: Comparable, Identifiable {
                     header: nil,
                     enableContextActions: false,
                     hiddenOffset: false,
+					offsetReduce: nil,
                     interaction: interaction
                 )
         }

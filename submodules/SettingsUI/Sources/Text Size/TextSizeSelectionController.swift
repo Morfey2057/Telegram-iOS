@@ -297,8 +297,9 @@ private final class TextSizeSelectionControllerNode: ASDisplayNode, UIScrollView
                 selected: false,
                 header: nil,
                 enableContextActions: false,
-                hiddenOffset: false,
-                interaction: interaction
+				hiddenOffset: false,
+				offsetReduce: nil,
+				interaction: interaction
             )
         }
 

@@ -242,7 +242,7 @@ private final class ChatListShimmerNode: ASDisplayNode {
                     topForumTopicItems: [],
                     autoremoveTimeout: nil,
                     storyState: nil
-                )), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enableContextActions: false, hiddenOffset: false, interaction: interaction)
+				)), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enableContextActions: false, hiddenOffset: false, offsetReduce: nil, interaction: interaction)
             }
             
             var itemNodes: [ChatListItemNode] = []
@@ -1763,7 +1763,7 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
     
     private var allowOverscrollItemExpansion: Bool = false
     private var currentOverscrollItemExpansionTimestamp: Double?
-    
+	private var isOverscrollItemCollapsing: Bool = false
     private var containerLayout: (layout: ContainerViewLayout, navigationBarHeight: CGFloat, visualNavigationHeight: CGFloat, cleanNavigationBarHeight: CGFloat, storiesInset: CGFloat)?
     
     var contentScrollingEnded: ((ListView) -> Bool)?
@@ -2132,8 +2132,16 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
         }
         
         var offset = resultingOffset
-        if self.isSearchDisplayControllerActive {
-            offset = 0.0
+
+
+		if self.isSearchDisplayControllerActive || self.allowOverscrollItemExpansion || self.isOverscrollItemCollapsing /* disable for stories */ {
+			if let navigationBarComponentView = self.navigationBarView.view as? ChatListNavigationBar.View {
+				if !navigationBarComponentView.storiesUnlocked || self.isSearchDisplayControllerActive {
+					offset = 0.0
+				} else {
+					offset = -ChatListNavigationBar.storiesScrollHeight
+				}
+			}
         }
         
         var allowAvatarsExpansion: Bool = true
@@ -2423,9 +2431,13 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
         guard let containerLayout = self.containerLayout else {
             return
         }
-        self.updateNavigationScrolling(navigationHeight: containerLayout.navigationBarHeight, transition: self.tempNavigationScrollingTransition ?? .immediate)
-        
-        if listView.isDragging {
+
+        self.updateNavigationScrolling(
+			navigationHeight: containerLayout.navigationBarHeight,
+			transition: self.tempNavigationScrollingTransition ?? .immediate
+		)
+
+		if listView.isDragging {
             var overscrollSelectedId: EnginePeer.Id?
             var overscrollHiddenChatItemsAllowed = false
             if let controller = self.controller, let componentView = controller.chatListHeaderView(), let storyPeerListView = componentView.storyPeerListView() {
@@ -2434,7 +2446,7 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
             }
             
             if let chatListNode = listView as? ChatListNode {
-                if chatListNode.hasItemsToBeRevealed() {
+				if chatListNode.hasItemsToBeRevealed() {
                     overscrollSelectedId = nil
                 }
             }
@@ -2463,38 +2475,47 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                         var manuallyAllow = false
                         
                         if isPrimary {
-                            if let storySubscriptions = controller.orderedStorySubscriptions, shouldDisplayStoriesInChatListHeader(storySubscriptions: storySubscriptions, isHidden: controller.location == .chatList(groupId: .archive)) {
-                            } else {
+							if let storySubscriptions = controller.orderedStorySubscriptions, shouldDisplayStoriesInChatListHeader(storySubscriptions: storySubscriptions, isHidden: controller.location == .chatList(groupId: .archive)) {
+								manuallyAllow = true
+							} else {
                                 manuallyAllow = true
                             }
                         } else {
                             manuallyAllow = true
                         }
-                        
-                        if manuallyAllow, case let .known(value) = offset, value + listView.tempTopInset <= -40.0 {
+						if manuallyAllow,
+							case let .known(value) = offset,
+						   value + listView.tempTopInset <= 40,
+						   mainContainerNode.currentItemNode.currentState.hiddenItemShouldBeTemporaryRevealed != .revealed
+						{
                             overscrollHiddenChatItemsAllowed = true
-                        }
+						} else {
+							overscrollHiddenChatItemsAllowed = false
+							allowOverscrollItemExpansion = false
+						}
                     }
                 
                     if overscrollHiddenChatItemsAllowed {
                         if self.allowOverscrollItemExpansion {
+
                             let timestamp = CACurrentMediaTime()
                             if let _ = self.currentOverscrollItemExpansionTimestamp {
                             } else {
                                 self.currentOverscrollItemExpansionTimestamp = timestamp
                             }
-                            
-                            if let currentOverscrollItemExpansionTimestamp = self.currentOverscrollItemExpansionTimestamp, currentOverscrollItemExpansionTimestamp <= timestamp - 0.0 {
-                                self.allowOverscrollItemExpansion = false
-                                
-                                if isPrimary {
-                                    self.mainContainerNode.currentItemNode.revealScrollHiddenItem()
-                                } else {
-                                    self.inlineStackContainerNode?.currentItemNode.revealScrollHiddenItem()
-                                }
+
+							if let currentOverscrollItemExpansionTimestamp = self.currentOverscrollItemExpansionTimestamp, currentOverscrollItemExpansionTimestamp <= timestamp - 0 {
+									if isPrimary {
+										self.mainContainerNode.currentItemNode.keepTopItemOverscrollBackground = .init(color: .clear, direction: true)
+										if case let .known(value) = offset {
+											self.mainContainerNode.currentItemNode.scrollHiddenItem(offset: value + mainContainerNode.tempTopInset)
+										}
+									} else {
+										self.inlineStackContainerNode?.currentItemNode.revealScrollHiddenItem()
+									}
                             }
                         }
-                    }
+					}
                 }
             }
         }
@@ -2534,19 +2555,48 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                 self.allowOverscrollStoryExpansion = false
             }
         }
-        self.allowOverscrollItemExpansion = true
+
+		self.allowOverscrollItemExpansion = true
+		self.isOverscrollItemCollapsing = false
     }
     
     private func endedInteractiveDragging(listView: ListView, isPrimary: Bool) {
+
         if isPrimary {
             self.allowOverscrollStoryExpansion = false
             self.currentOverscrollStoryExpansionTimestamp = nil
         }
-        self.allowOverscrollItemExpansion = false
-        self.currentOverscrollItemExpansionTimestamp = nil
+
+		let strongSelf = self.mainContainerNode.currentItemNode
+		if case .revealing(let offset) = strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed {
+			if offset < -110 {
+				strongSelf.updateState { state in
+					var state = state
+					state.hiddenItemShouldBeTemporaryRevealed = .revealed
+					return state
+				}
+			} else {
+				strongSelf.updateState { state in
+					var state = state
+					state.hiddenItemShouldBeTemporaryRevealed = .hidden
+					return state
+				}
+			}
+		}
+
+		if self.allowOverscrollItemExpansion {
+			self.isOverscrollItemCollapsing = true
+			self.allowOverscrollItemExpansion = false
+		}
     }
     
     private func contentScrollingEnded(listView: ListView, isPrimary: Bool) -> Bool {
+
+		if self.isOverscrollItemCollapsing {
+			self.isOverscrollItemCollapsing = false
+//			self.mainContainerNode.currentItemNode.resentTopItemOverscrollBackground()
+		}
+
         if !isPrimary || self.inlineStackContainerNode == nil {
         } else {
             return false
@@ -2574,8 +2624,8 @@ final class ChatListControllerNode: ASDisplayNode, UIGestureRecognizerDelegate {
                 return true
             }
         }
-        
-        return false
+
+		return false
     }
     
     func makeInlineChatList(location: ChatListControllerLocation) -> ChatListContainerNode {

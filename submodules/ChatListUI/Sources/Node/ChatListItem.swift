@@ -188,6 +188,7 @@ public class ChatListItem: ListViewItem, ChatListSearchItemNeighbour {
     let selected: Bool
     let enableContextActions: Bool
     let hiddenOffset: Bool
+	var offsetReduce: CGFloat?
     let interaction: ChatListNodeInteraction
     
     public let selectable: Bool = true
@@ -211,7 +212,22 @@ public class ChatListItem: ListViewItem, ChatListSearchItemNeighbour {
         }
     }
     
-    public init(presentationData: ChatListPresentationData, context: AccountContext, chatListLocation: ChatListControllerLocation, filterData: ChatListItemFilterData?, index: EngineChatList.Item.Index, content: ChatListItemContent, editing: Bool, hasActiveRevealControls: Bool, selected: Bool, header: ListViewItemHeader?, enableContextActions: Bool, hiddenOffset: Bool, interaction: ChatListNodeInteraction) {
+    public init(
+		presentationData: ChatListPresentationData,
+		context: AccountContext,
+		chatListLocation: ChatListControllerLocation,
+		filterData: ChatListItemFilterData?,
+		index: EngineChatList.Item.Index,
+		content: ChatListItemContent,
+		editing: Bool,
+		hasActiveRevealControls: Bool,
+		selected: Bool,
+		header: ListViewItemHeader?,
+		enableContextActions: Bool,
+		hiddenOffset: Bool,
+		offsetReduce: CGFloat?,
+		interaction: ChatListNodeInteraction
+	) {
         self.presentationData = presentationData
         self.chatListLocation = chatListLocation
         self.filterData = filterData
@@ -224,6 +240,7 @@ public class ChatListItem: ListViewItem, ChatListSearchItemNeighbour {
         self.header = header
         self.enableContextActions = enableContextActions
         self.hiddenOffset = hiddenOffset
+		self.offsetReduce = offsetReduce
         self.interaction = interaction
     }
     
@@ -926,7 +943,7 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
             }
         }
     }
-    
+
     var item: ChatListItem?
     
     private let backgroundNode: ASDisplayNode
@@ -970,6 +987,7 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
     var credibilityIconView: ComponentHostView<Empty>?
     var credibilityIconComponent: EmojiStatusComponent?
     let mutedIconNode: ASImageNode
+	var overlayNode: OverlayControllerView?
     
     private var hierarchyTrackingLayer: HierarchyTrackingLayer?
     private var cachedDataDisposable = MetaDisposable()
@@ -1361,7 +1379,7 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
                 UIView.transition(with: self.avatarNode.view, duration: 0.3, options: [.transitionCrossDissolve], animations: {
                 }, completion: nil)
             }
-            self.avatarNode.setPeer(context: item.context, theme: item.presentationData.theme, peer: peer, overrideImage: .archivedChatsIcon(hiddenByDefault: groupReferenceData.hiddenByDefault), emptyColor: item.presentationData.theme.list.mediaPlaceholderColor, synchronousLoad: synchronousLoads)
+            self.avatarNode.setPeer(context: item.context, theme: item.presentationData.theme, peer: peer, overrideImage: .archivedChatsIcon(hiddenByDefault: false), emptyColor: item.presentationData.theme.list.mediaPlaceholderColor, synchronousLoad: synchronousLoads)
         }
         
         self.avatarNode.setStoryStats(storyStats: storyState.flatMap { storyState in
@@ -2692,12 +2710,74 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
             let rawContentRect = CGRect(origin: CGPoint(x: 2.0, y: layoutOffset + floor(item.presentationData.fontSize.itemListBaseFontSize * 8.0 / 17.0)), size: CGSize(width: rawContentWidth, height: itemHeight - 12.0 - 9.0))
             
             let insets = ChatListItemNode.insets(first: first, last: last, firstWithHeader: firstWithHeader)
+
             var heightOffset: CGFloat = 0.0
-            if item.hiddenOffset {
+
+			var layout = ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: max(0.0, itemHeight + heightOffset)), insets: insets)
+
+
+			if item.hiddenOffset && item.offsetReduce == nil {
                 heightOffset = -itemHeight
-            }
-            let layout = ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: max(0.0, itemHeight + heightOffset)), insets: insets)
-            
+				layout = ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: 0.0), insets: insets)
+			} else if let offset = item.offsetReduce {
+
+				layout = ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: 0.0), insets: insets)
+				heightOffset = -abs(offset)
+
+
+				var newItemHeight: CGFloat?
+
+				if abs(offset) > itemHeight {
+					newItemHeight = abs(offset)
+				}
+
+				DispatchQueue.main.async {
+					if let newItemHeight = newItemHeight {
+						if newItemHeight > 110 {
+							self.overlayNode?.update(with: .expanding)
+						} else {
+							self.overlayNode?.update(with: .collapsing)
+						}
+						itemHeight = newItemHeight
+					}
+				}
+
+				refreshOverlay()
+			} else if let overlayNode = self.overlayNode {
+				DispatchQueue.main.async {
+					
+					overlayNode.update(with: .reveal(triggerFrame: self.avatarNode.frame))
+					self.avatarNode.view.layer.zPosition = 10
+					overlayNode.revealCompletion = {
+						overlayNode.removeFromSuperview()
+						self.overlayNode = nil
+						self.avatarNode.view.layer.zPosition = 0
+						self.playArchiveAnimation(.revealed)
+					}
+				}
+			}
+
+			func refreshOverlay() {
+				DispatchQueue.main.async {
+						if self.overlayNode == nil {
+							let overlayNode = OverlayControllerView()
+
+							overlayNode.translatesAutoresizingMaskIntoConstraints = false
+							let contextContainerView = self.contextContainer.view
+							contextContainerView.addSubview(overlayNode)
+
+							NSLayoutConstraint.activate([
+								overlayNode.leadingAnchor.constraint(equalTo: contextContainerView.leadingAnchor),
+								overlayNode.trailingAnchor.constraint(equalTo: contextContainerView.trailingAnchor),
+								overlayNode.topAnchor.constraint(equalTo: contextContainerView.topAnchor),
+								overlayNode.bottomAnchor.constraint(equalTo: contextContainerView.bottomAnchor)
+							])
+
+							self.overlayNode = overlayNode
+						}
+				}
+			}
+
             var customActions: [ChatListItemAccessibilityCustomAction] = []
             for option in peerLeftRevealOptions {
                 customActions.append(ChatListItemAccessibilityCustomAction(name: option.title, target: nil, selector: #selector(ChatListItemNode.performLocalAccessibilityCustomAction(_:)), key: option.key))
@@ -2736,14 +2816,14 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
                     let revealOffset = 0.0
                     
                     let transition: ContainedViewLayoutTransition
-                    if animated {
-                        transition = ContainedViewLayoutTransition.animated(duration: 0.4, curve: .spring)
+					if animated || strongSelf.overlayNode != nil {
+						transition = ContainedViewLayoutTransition.animated(duration: 0.05, curve: .linear)
                     } else {
                         transition = .immediate
                     }
                     
                     let contextContainerFrame = CGRect(origin: CGPoint(), size: CGSize(width: layout.contentSize.width, height: itemHeight))
-//                    strongSelf.contextContainer.position = contextContainerFrame.center
+                    strongSelf.contextContainer.position = contextContainerFrame.center
                     transition.updatePosition(node: strongSelf.contextContainer, position: contextContainerFrame.center)
                     transition.updateBounds(node: strongSelf.contextContainer, bounds: contextContainerFrame.offsetBy(dx: -strongSelf.revealOffset, dy: 0.0))
                     
@@ -3548,13 +3628,13 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
                         backgroundColor = theme.itemSelectedBackgroundColor
                         highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
                     } else if isPinned {
-                        if case let .groupReference(groupReferenceData) = item.content, groupReferenceData.hiddenByDefault {
-                            backgroundColor = theme.itemBackgroundColor
-                            highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
-                        } else {
+//                        if case let .groupReference(groupReferenceData) = item.content, groupReferenceData.hiddenByDefault {
+//                            backgroundColor = theme.itemBackgroundColor
+//                            highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
+//                        } else {
                             backgroundColor = theme.pinnedItemBackgroundColor
                             highlightedBackgroundColor = theme.pinnedItemHighlightedBackgroundColor
-                        }
+//                        }
                     } else {
                         backgroundColor = theme.itemBackgroundColor
                         highlightedBackgroundColor = theme.itemHighlightedBackgroundColor
@@ -3832,11 +3912,11 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
         })
     }
     
-    func playArchiveAnimation() {
+	func playArchiveAnimation(_ animation: AvatarNode.ContentNode.ArchiveAnimation = .archived) {
         guard let item = self.item, case .groupReference = item.content else {
             return
         }
-        self.avatarNode.playArchiveAnimation()
+        self.avatarNode.playArchiveAnimation(animation)
     }
     
     override func animateFrameTransition(_ progress: CGFloat, _ currentValue: CGFloat) {
@@ -3845,7 +3925,7 @@ class ChatListItemNode: ItemListRevealOptionsItemNode {
         if let item = self.item {
             if case .groupReference = item.content {
                 self.layer.sublayerTransform = CATransform3DMakeTranslation(0.0, currentValue - (self.currentItemHeight ?? 0.0), 0.0)
-            } else {
+			} else {
                 var separatorFrame = self.separatorNode.frame
                 separatorFrame.origin.y = currentValue - UIScreenPixel
                 self.separatorNode.frame = separatorFrame

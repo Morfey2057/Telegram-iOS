@@ -313,7 +313,8 @@ enum ChatListNodeEntry: Comparable, Identifiable {
         var revealed: Bool
         var hiddenByDefault: Bool
         var storyState: ChatListNodeState.StoryState?
-        
+		var revealingState: ChatListNodeState.HiddenItemsState
+
         init(
             index: EngineChatList.Item.Index,
             presentationData: ChatListPresentationData,
@@ -324,7 +325,8 @@ enum ChatListNodeEntry: Comparable, Identifiable {
             unreadCount: Int,
             revealed: Bool,
             hiddenByDefault: Bool,
-            storyState: ChatListNodeState.StoryState?
+            storyState: ChatListNodeState.StoryState?,
+			revealingState: ChatListNodeState.HiddenItemsState
         ) {
             self.index = index
             self.presentationData = presentationData
@@ -336,6 +338,7 @@ enum ChatListNodeEntry: Comparable, Identifiable {
             self.revealed = revealed
             self.hiddenByDefault = hiddenByDefault
             self.storyState = storyState
+			self.revealingState = revealingState
         }
         
         static func ==(lhs: GroupReferenceEntryData, rhs: GroupReferenceEntryData) -> Bool {
@@ -369,6 +372,9 @@ enum ChatListNodeEntry: Comparable, Identifiable {
             if lhs.storyState != rhs.storyState {
                 return false
             }
+			if lhs.revealingState != rhs.revealingState {
+				return false
+			}
             
             return true
         }
@@ -693,7 +699,7 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
             autoremoveTimeout: entry.autoremoveTimeout,
             forumTopicData: entry.forumTopicData,
             topForumTopicItems: entry.topForumTopicItems,
-            revealed: threadId == 1 && (state.hiddenItemShouldBeTemporaryRevealed || state.editing),
+			revealed: threadId == 1 && (state.hiddenItemShouldBeTemporaryRevealed == .revealed || state.editing),
             storyState: entry.renderedPeer.peerId == accountPeerId ? nil : entry.storyStats.flatMap { stats -> ChatListNodeState.StoryState in
                 return ChatListNodeState.StoryState(
                     stats: stats,
@@ -830,7 +836,7 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
                         autoremoveTimeout: item.item.autoremoveTimeout,
                         forumTopicData: item.item.forumTopicData,
                         topForumTopicItems: item.item.topForumTopicItems,
-                        revealed: state.hiddenItemShouldBeTemporaryRevealed || state.editing,
+						revealed: state.hiddenItemShouldBeTemporaryRevealed == .revealed || state.editing,
                         storyState: nil
                     )))
                     if pinningIndex != 0 {
@@ -855,9 +861,10 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
                     message: groupReference.topMessage,
                     editing: state.editing,
                     unreadCount: groupReference.unreadCount,
-                    revealed: state.hiddenItemShouldBeTemporaryRevealed,
+					revealed: state.hiddenItemShouldBeTemporaryRevealed == .revealed,
                     hiddenByDefault: hideArchivedFolderByDefault,
-                    storyState: mappedStoryState
+                    storyState: mappedStoryState,
+					revealingState: state.hiddenItemShouldBeTemporaryRevealed
                 )))
                 if pinningIndex != 0 {
                     pinningIndex -= 1

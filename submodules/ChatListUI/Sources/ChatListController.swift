@@ -1288,12 +1288,34 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                     }
                 }
             }
-            
             switch item.content {
             case let .groupReference(groupReference):
-                let chatListController = ChatListControllerImpl(context: strongSelf.context, location: .chatList(groupId: groupReference.groupId), controlsHistoryPreload: false, hideNetworkActivityStatus: true, previewing: true, enableDebugActions: false)
-                chatListController.navigationPresentation = .master
-                let contextController = ContextController(account: strongSelf.context.account, presentationData: strongSelf.presentationData, source: .controller(ContextControllerContentSourceImpl(controller: chatListController, sourceNode: node, navigationController: strongSelf.navigationController as? NavigationController)), items: archiveContextMenuItems(context: strongSelf.context, groupId: groupReference.groupId._asGroup(), chatListController: strongSelf) |> map { ContextController.Items(content: .list($0)) }, gesture: gesture)
+				let chatListController = ChatListControllerImpl(
+					context: strongSelf.context,
+					location: .chatList(groupId: groupReference.groupId),
+					controlsHistoryPreload: false,
+					hideNetworkActivityStatus: true,
+					previewing: true,
+					enableDebugActions: false
+				)
+				chatListController.navigationPresentation = .master
+				let contextController = ContextController(
+					account: strongSelf.context.account,
+					presentationData: strongSelf.presentationData,
+					source: .controller(
+						ContextControllerContentSourceImpl(
+							controller: chatListController,
+							sourceNode: node,
+							navigationController: strongSelf.navigationController as? NavigationController)
+					),
+					items: archiveContextMenuItems(
+						context: strongSelf.context,
+						groupId: groupReference.groupId._asGroup(),
+						chatListController: strongSelf
+					)
+					|> map { ContextController.Items(content: .list($0)) },
+					gesture: gesture
+				)
                 strongSelf.presentInGlobalOverlay(contextController)
             case let .peer(peerData):
                 let peer = peerData.peer
@@ -1318,6 +1340,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                             chatListController.navigationPresentation = .master
                             let contextController = ContextController(account: strongSelf.context.account, presentationData: strongSelf.presentationData, source: .controller(ContextControllerContentSourceImpl(controller: chatListController, sourceNode: node, navigationController: strongSelf.navigationController as? NavigationController)), items: chatContextMenuItems(context: strongSelf.context, peerId: peer.peerId, promoInfo: promoInfo, source: .chatList(filter: strongSelf.chatListDisplayNode.mainContainerNode.currentItemNode.chatListFilter), chatListController: strongSelf, joined: joined) |> map { ContextController.Items(content: .list($0)) }, gesture: gesture)
                             strongSelf.presentInGlobalOverlay(contextController)
+							
                         }
                     } else {
                         let source: ContextContentSource
@@ -4646,7 +4669,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             strongSelf.chatListDisplayNode.mainContainerNode.updateState { state in
                 var state = state
                 if updatedValue {
-                    state.hiddenItemShouldBeTemporaryRevealed = false
+					state.hiddenItemShouldBeTemporaryRevealed = .hidden // false
                 }
                 state.peerIdWithRevealedOptions = nil
                 return state
@@ -5116,7 +5139,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             if let strongSelf = self {
                 strongSelf.chatListDisplayNode.effectiveContainerNode.updateState { state in
                     var state = state
-                    state.hiddenItemShouldBeTemporaryRevealed = false
+					state.hiddenItemShouldBeTemporaryRevealed = .hidden
                     return state
                 }
                 

@@ -245,14 +245,20 @@ public struct ChatListNodeState: Equatable {
     public var peerInputActivities: ChatListNodePeerInputActivities?
     public var pendingRemovalItemIds: Set<ItemId>
     public var pendingClearHistoryPeerIds: Set<ItemId>
-    public var hiddenItemShouldBeTemporaryRevealed: Bool
     public var selectedAdditionalCategoryIds: Set<Int>
     public var hiddenPsaPeerId: EnginePeer.Id?
     public var foundPeers: [(EnginePeer, EnginePeer?)]
     public var selectedPeerMap: [EnginePeer.Id: EnginePeer]
     public var selectedThreadIds: Set<Int64>
     public var archiveStoryState: StoryState?
-    
+	public var hiddenItemShouldBeTemporaryRevealed: HiddenItemsState
+
+	public enum HiddenItemsState: Equatable {
+		case hidden
+		case revealed
+		case revealing(offset: CGFloat)
+	}
+
     public init(
         presentationData: ChatListPresentationData,
         editing: Bool,
@@ -264,7 +270,7 @@ public struct ChatListNodeState: Equatable {
         peerInputActivities: ChatListNodePeerInputActivities?,
         pendingRemovalItemIds: Set<ItemId>,
         pendingClearHistoryPeerIds: Set<ItemId>,
-        hiddenItemShouldBeTemporaryRevealed: Bool,
+        hiddenItemShouldBeTemporaryRevealed: HiddenItemsState,
         hiddenPsaPeerId: EnginePeer.Id?,
         selectedThreadIds: Set<Int64>,
         archiveStoryState: StoryState?
@@ -419,6 +425,7 @@ private func mappedInsertEntries(context: AccountContext, nodeInteraction: ChatL
                             header: nil,
                             enableContextActions: true,
                             hiddenOffset: threadInfo?.isHidden == true && !revealed,
+							offsetReduce: nil,
                             interaction: nodeInteraction
                         ), directionHint: entry.directionHint)
                     case let .peers(filter, isSelecting, _, filters, displayAutoremoveTimeout, displayPresence):
@@ -648,7 +655,13 @@ private func mappedInsertEntries(context: AccountContext, nodeInteraction: ChatL
                     selected: false,
                     header: nil,
                     enableContextActions: true,
-                    hiddenOffset: groupReferenceEntry.hiddenByDefault && !groupReferenceEntry.revealed,
+					hiddenOffset: groupReferenceEntry.hiddenByDefault && !groupReferenceEntry.revealed,
+					offsetReduce: {
+						switch groupReferenceEntry.revealingState {
+						case .revealing(let offset): return offset
+						default: return nil
+						}
+					}(),
                     interaction: nodeInteraction
                 ), directionHint: entry.directionHint)
             case let .ContactEntry(contactEntry):
@@ -776,6 +789,7 @@ private func mappedUpdateEntries(context: AccountContext, nodeInteraction: ChatL
                             header: nil,
                             enableContextActions: true,
                             hiddenOffset: threadInfo?.isHidden == true && !revealed,
+							offsetReduce: nil,
                             interaction: nodeInteraction
                     ), directionHint: entry.directionHint)
                     case let .peers(filter, isSelecting, _, filters, displayAutoremoveTimeout, displayPresence):
@@ -959,7 +973,13 @@ private func mappedUpdateEntries(context: AccountContext, nodeInteraction: ChatL
                         selected: false,
                         header: nil,
                         enableContextActions: true,
-                        hiddenOffset: groupReferenceEntry.hiddenByDefault && !groupReferenceEntry.revealed,
+						hiddenOffset: groupReferenceEntry.hiddenByDefault && !groupReferenceEntry.revealed,
+						offsetReduce: {
+							switch groupReferenceEntry.revealingState {
+							case .revealing(let offset): return offset
+							default: return nil
+							}
+						}(),
                         interaction: nodeInteraction
                 ), directionHint: entry.directionHint)
             case let .ContactEntry(contactEntry):
@@ -1047,7 +1067,33 @@ private func mappedUpdateEntries(context: AccountContext, nodeInteraction: ChatL
 }
 
 private func mappedChatListNodeViewListTransition(context: AccountContext, nodeInteraction: ChatListNodeInteraction, location: ChatListControllerLocation, filterData: ChatListItemFilterData?, mode: ChatListNodeMode, isPeerEnabled: ((EnginePeer) -> Bool)?, transition: ChatListNodeViewTransition) -> ChatListNodeListViewTransition {
-    return ChatListNodeListViewTransition(chatListView: transition.chatListView, deleteItems: transition.deleteItems, insertItems: mappedInsertEntries(context: context, nodeInteraction: nodeInteraction, location: location, filterData: filterData, mode: mode, isPeerEnabled: isPeerEnabled, entries: transition.insertEntries), updateItems: mappedUpdateEntries(context: context, nodeInteraction: nodeInteraction, location: location, filterData: filterData, mode: mode, isPeerEnabled: isPeerEnabled, entries: transition.updateEntries), options: transition.options, scrollToItem: transition.scrollToItem, stationaryItemRange: transition.stationaryItemRange, adjustScrollToFirstItem: transition.adjustScrollToFirstItem, animateCrossfade: transition.animateCrossfade)
+    return ChatListNodeListViewTransition(
+		chatListView: transition.chatListView,
+		deleteItems: transition.deleteItems,
+		insertItems: mappedInsertEntries(
+			context: context,
+			nodeInteraction: nodeInteraction,
+			location: location,
+			filterData: filterData,
+			mode: mode,
+			isPeerEnabled: isPeerEnabled,
+			entries: transition.insertEntries
+		),
+		updateItems: mappedUpdateEntries(
+			context: context,
+			nodeInteraction: nodeInteraction,
+			location: location,
+			filterData: filterData,
+			mode: mode,
+			isPeerEnabled: isPeerEnabled,
+			entries: transition.updateEntries
+		),
+		options: transition.options,
+		scrollToItem: transition.scrollToItem,
+		stationaryItemRange: transition.stationaryItemRange,
+		adjustScrollToFirstItem: transition.adjustScrollToFirstItem,
+		animateCrossfade: transition.animateCrossfade
+	)
 }
 
 private final class ChatListOpaqueTransactionState {
@@ -1253,7 +1299,7 @@ public final class ChatListNode: ListView {
             isSelecting = true
         }
         
-        self.currentState = ChatListNodeState(presentationData: ChatListPresentationData(theme: theme, fontSize: fontSize, strings: strings, dateTimeFormat: dateTimeFormat, nameSortOrder: nameSortOrder, nameDisplayOrder: nameDisplayOrder, disableAnimations: disableAnimations), editing: isSelecting, peerIdWithRevealedOptions: nil, selectedPeerIds: Set(), foundPeers: [], selectedPeerMap: [:], selectedAdditionalCategoryIds: Set(), peerInputActivities: nil, pendingRemovalItemIds: Set(), pendingClearHistoryPeerIds: Set(), hiddenItemShouldBeTemporaryRevealed: false, hiddenPsaPeerId: nil, selectedThreadIds: Set(), archiveStoryState: nil)
+		self.currentState = ChatListNodeState(presentationData: ChatListPresentationData(theme: theme, fontSize: fontSize, strings: strings, dateTimeFormat: dateTimeFormat, nameSortOrder: nameSortOrder, nameDisplayOrder: nameDisplayOrder, disableAnimations: disableAnimations), editing: isSelecting, peerIdWithRevealedOptions: nil, selectedPeerIds: Set(), foundPeers: [], selectedPeerMap: [:], selectedAdditionalCategoryIds: Set(), peerInputActivities: nil, pendingRemovalItemIds: Set(), pendingClearHistoryPeerIds: Set(), hiddenItemShouldBeTemporaryRevealed: .hidden, hiddenPsaPeerId: nil, selectedThreadIds: Set(), archiveStoryState: nil)
         self.statePromise = ValuePromise(self.currentState, ignoreRepeated: true)
         
         self.theme = theme
@@ -2366,6 +2412,13 @@ public final class ChatListNode: ListView {
                 disableAnimations = true
                 updatedScrollPosition = nil
             }
+
+			switch state.hiddenItemShouldBeTemporaryRevealed {
+			case .revealing(_):
+				disableAnimations = false
+			case .revealed: break
+			case .hidden: break
+			}
             
             let filterData = filter.flatMap { filter -> ChatListItemFilterData? in
                 if case let .filter(_, _, _, data) = filter {
@@ -2374,7 +2427,7 @@ public final class ChatListNode: ListView {
                     return nil
                 }
             }
-            
+
             return preparedChatListNodeViewTransition(from: previousView, to: processedView, reason: reason, previewing: previewing, disableAnimations: disableAnimations, account: context.account, scrollPosition: updatedScrollPosition, searchMode: searchMode)
             |> map({ mappedChatListNodeViewListTransition(context: context, nodeInteraction: nodeInteraction, location: location, filterData: filterData, mode: mode, isPeerEnabled: isPeerEnabled, transition: $0) })
             |> runOn(prepareOnMainQueue ? Queue.mainQueue() : viewProcessingQueue)
@@ -2434,10 +2487,10 @@ public final class ChatListNode: ListView {
                         }
                     }
                 }
-                if !isHiddenItemVisible && strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed {
+				if !isHiddenItemVisible && strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed == .revealed {
                     strongSelf.updateState { state in
                         var state = state
-                        state.hiddenItemShouldBeTemporaryRevealed = false
+						state.hiddenItemShouldBeTemporaryRevealed = .hidden
                         return state
                     }
                 }
@@ -2817,7 +2870,7 @@ public final class ChatListNode: ListView {
                 case let .known(value):
                     revealHiddenItems = value <= -strongSelf.tempTopInset - 60.0
             }
-            if !revealHiddenItems && strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed {
+			if !revealHiddenItems && strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed == .revealed {
                 /*strongSelf.updateState { state in
                     var state = state
                     state.hiddenItemShouldBeTemporaryRevealed = false
@@ -2845,20 +2898,21 @@ public final class ChatListNode: ListView {
                 return
             }
             let atTop: Bool
-            var revealHiddenItems: Bool = false
+//            var revealHiddenItems: Bool = false
             switch offset {
                 case .none, .unknown:
                     atTop = false
                 case let .known(value):
-                atTop = value <= -strongSelf.tempTopInset
-                    if strongSelf.startedScrollingAtUpperBound && startedScrollingWithCanExpandHiddenItems && strongSelf.isTracking {
-                        revealHiddenItems = value <= -strongSelf.tempTopInset - 60.0
-                    }
+					atTop = value <= -strongSelf.tempTopInset
+					if strongSelf.startedScrollingAtUpperBound && startedScrollingWithCanExpandHiddenItems && strongSelf.isTracking {
+//						revealHiddenItems = value <= -strongSelf.tempTopInset - 60.0
+					}
             }
             strongSelf.scrolledAtTopValue = atTop
             strongSelf.contentOffsetChanged?(offset)
-            if revealHiddenItems && !strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed {
-                //strongSelf.revealScrollHiddenItem()
+
+			if /* revealHiddenItems  &&*/ strongSelf.currentState.hiddenItemShouldBeTemporaryRevealed == .hidden {
+//                strongSelf.revealScrollHiddenItem()
             }
         }
         
@@ -2891,7 +2945,7 @@ public final class ChatListNode: ListView {
     }
     
     func hasItemsToBeRevealed() -> Bool {
-        if self.currentState.hiddenItemShouldBeTemporaryRevealed {
+		if self.currentState.hiddenItemShouldBeTemporaryRevealed == .revealed {
             return false
         }
         var isHiddenItemVisible = false
@@ -2926,21 +2980,80 @@ public final class ChatListNode: ListView {
                     if groupReference.hiddenByDefault {
                         isHiddenItemVisible = true
                     }
+
                 }
             }
         })
-        if isHiddenItemVisible && !self.currentState.hiddenItemShouldBeTemporaryRevealed {
+		if isHiddenItemVisible && self.currentState.hiddenItemShouldBeTemporaryRevealed == .hidden {
             if self.hapticFeedback == nil {
                 self.hapticFeedback = HapticFeedback()
             }
             self.hapticFeedback?.impact(.medium)
             self.updateState { state in
                 var state = state
-                state.hiddenItemShouldBeTemporaryRevealed = true
+				state.hiddenItemShouldBeTemporaryRevealed = .revealed
                 return state
             }
         }
     }
+
+	func scrollHiddenItem(offset: CGFloat) {
+		var isHiddenItemVisible = false
+		self.forEachItemNode({ itemNode in
+			if let itemNode = itemNode as? ChatListItemNode, let item = itemNode.item {
+				if case let .peer(peerData) = item.content, let threadInfo = peerData.threadInfo {
+					if threadInfo.isHidden {
+						isHiddenItemVisible = true
+					}
+				}
+				if case let .groupReference(groupReference) = item.content {
+					if groupReference.hiddenByDefault {
+						isHiddenItemVisible = true
+					}
+				}
+			}
+		})
+
+		if isHiddenItemVisible {
+			self.updateState { state in
+				var state = state
+				if state.hiddenItemShouldBeTemporaryRevealed != .revealed {
+					state.hiddenItemShouldBeTemporaryRevealed = .revealing(offset: calculateOffset(offset: offset))
+				}
+				return state
+			}
+		}
+	}
+
+	func hideHiddenItem() {
+		var isHiddenItemVisible = false
+		self.forEachItemNode({ itemNode in
+			if let itemNode = itemNode as? ChatListItemNode, let item = itemNode.item {
+				if case let .peer(peerData) = item.content, let threadInfo = peerData.threadInfo {
+					if threadInfo.isHidden {
+						isHiddenItemVisible = true
+					}
+				}
+				if case let .groupReference(groupReference) = item.content {
+					if groupReference.hiddenByDefault {
+						isHiddenItemVisible = true
+					}
+				}
+			}
+		})
+
+		if isHiddenItemVisible {
+			self.updateState { state in
+				var state = state
+				state.hiddenItemShouldBeTemporaryRevealed = .hidden
+				return state
+			}
+		}
+	}
+
+	func calculateOffset(offset: CGFloat) -> CGFloat {
+		return offset
+	}
     
     private func pollFilterUpdates() {
         self.chatFolderUpdates.set(.single(nil))
@@ -2998,6 +3111,13 @@ public final class ChatListNode: ListView {
             }
         }
     }
+
+	public func resetTopItemOverscrollBackground() {
+		self.keepTopItemOverscrollBackground = ListViewKeepTopItemOverscrollBackground(
+			color:  theme.chatList.pinnedItemBackgroundColor,
+			direction: false
+		)
+	}
     
     public func updateState(_ f: (ChatListNodeState) -> ChatListNodeState) {
         let state = f(self.currentState)
